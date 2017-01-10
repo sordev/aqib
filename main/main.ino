@@ -1,3 +1,4 @@
+#include <SoftwareSerial.h>
 #include <Wire.h>
 #include <SPI.h>
 // Only if you're using LCD 16x2
@@ -6,7 +7,7 @@
 LiquidCrystal lcd(10,9,5,6,7,8);
 
 // Include DHT LIbrary
-// DHT 11 Library from https://github.com/adafruit/DHT-sensor-library required https://github.com/adafruit/Adafruit_Sensor
+// DHT Library from https://github.com/adafruit/DHT-sensor-library required https://github.com/adafruit/Adafruit_Sensor
 #include <DHT.h>
 #define DHTPIN 2
 #define DHTTYPE DHT22
@@ -32,11 +33,20 @@ unsigned long lowpulseoccupancy = 0;
 float ratio = 0;
 long concentrationPM25 = 0;
 long concentrationPM10 = 0;
-// If you don't have DHT 11 uncomment below
+// If you don't have DHT 11 or DHT 22 uncomment below
 // int temp=20; //external temperature, if you can replace this with a DHT11 or better
 long ppmv;
 
-int mq136;
+int so2;
+int co;
+int nh3;
+int no2;
+
+// WIFI credentials rx tx
+SoftwareSerial ESP8266(12, 11);
+String SSID = "devsor";
+String PASSWORD = "97070767";
+boolean FAIL_8266 = false;
 
 void setup() {
   // Initializes the interface to the LCD screen, and specifies the dimensions (width and height) of the display }
@@ -45,11 +55,78 @@ void setup() {
   // Start Pin
   pinMode(DUST_SENSOR_DIGITAL_PIN_PM10,INPUT);
   pinMode(DUST_SENSOR_DIGITAL_PIN_PM25,INPUT);
-  Serial.begin(9600);
+  // Serial.begin(9600);
+  // ESP8266.begin(9600);
+  do{
+    Serial.begin(9600);
+    ESP8266.begin(9600);
+
+    //Wait Serial Monitor to start
+    while(!Serial);
+    Serial.println("--- Start ---");
+
+    ESP8266.println("AT+RST");
+    delay(1000);
+    if(ESP8266.find("ready"))
+    {
+      Serial.println("Module is ready");
+      ESP8266.println("AT+CWMODE=1");
+      delay(2000);
+
+      //Quit existing AP, for demo
+      Serial.println("Quit AP");
+      ESP8266.println("AT+CWQAP");
+      delay(1000);
+
+      clearESP8266SerialBuffer();
+      if(cwJoinAP())
+      {
+        Serial.println("CWJAP Success");
+        FAIL_8266 = false;
+
+        delay(3000);
+        clearESP8266SerialBuffer();
+        //Get and display my IP
+        sendESP8266Cmdln("AT+CIFSR", 1000);
+        //Set multi connections
+        sendESP8266Cmdln("AT+CIPMUX=1", 1000);
+        //Setup web server on port 80
+        sendESP8266Cmdln("AT+CIPSERVER=1,80",1000);
+
+        Serial.println("Server setup finish");
+      }else{
+        Serial.println("CWJAP Fail");
+        delay(500);
+        FAIL_8266 = true;
+      }
+    }else{
+      Serial.println("Module have no response.");
+      delay(500);
+      FAIL_8266 = true;
+    }
+  }while(FAIL_8266);
 }
 
 void loop()
 {
+  // Read mq136 sensor on Analogpin 0
+  // Read 6814 sensor on Analogpin 7,6,5
+  lcd.clear();
+  so2 = analogRead(0);
+  co = analogRead(7);
+  nh3 = analogRead(6);
+  no2 = analogRead(5);
+
+  lcd.print( "SO2: " + (String)so2 );
+  lcd.setCursor(0, 2);
+  lcd.print( "CO: " + (String)co );
+  delay(4000);
+  lcd.clear();
+  lcd.print( "NH3: " + (String)nh3 );
+  lcd.setCursor(0, 2);
+  lcd.print( "NO2: " + (String)no2 );
+  delay(4000);
+
   lcd.clear(); // Clears the display
   float humidity = dht.readHumidity();
   float temp = dht.readTemperature();
@@ -87,13 +164,41 @@ void loop()
   lcd.print( "PPMV: " + (String)ppmv );
   delay(4000);
 
-  // Read mq136 sensor on Analogpin 0
-  lcd.clear();
-  mq136 = analogRead(0);
-  lcd.print( "MQ136: " + (String)mq136 );
-  delay(4000);
-}
+  if(ESP8266.available())
+    {
+      Serial.println("Something received");
+      delay(1000);
+      if(ESP8266.find("+IPD,"))
+      {
+        String action;
 
+        Serial.println("+IPD, found");
+        int connectionId = ESP8266.read()-48;
+        Serial.println("connectionId: " + String(connectionId));
+
+        ESP8266.find("led=");
+        char s = ESP8266.read();
+        if(s=='0'){
+          action = "led=0";
+          // digitalWrite(LED, LOW);
+        }else if(s=='1'){
+          action = "led=1";
+          // digitalWrite(LED, HIGH);
+        }else{
+          action = "led=?";
+        }
+
+        Serial.println(action);
+        sendHTTPResponse(connectionId, action);
+
+        //Close TCP/UDP
+        String cmdCIPCLOSE = "AT+CIPCLOSE=";
+        cmdCIPCLOSE += connectionId;
+        sendESP8266Cmdln(cmdCIPCLOSE, 1000);
+      }
+    }
+
+}
 
 long getPM(int DUST_SENSOR_DIGITAL_PIN) {
   starttime = millis();
@@ -110,4 +215,77 @@ long getPM(int DUST_SENSOR_DIGITAL_PIN) {
       return(concentration);
     }
   }
+}
+
+void sendHTTPResponse(int id, String content)
+{
+  String response;
+  response = "HTTP/1.1 200 OK\r\n";
+  response += "Content-Type: text/html; charset=UTF-8\r\n";
+  response += "Content-Length: ";
+  response += content.length();
+  response += "\r\n";
+  response +="Connection: close\r\n\r\n";
+  response += content;
+
+  String cmd = "AT+CIPSEND=";
+  cmd += id;
+  cmd += ",";
+  cmd += response.length();
+
+  Serial.println("--- AT+CIPSEND ---");
+  sendESP8266Cmdln(cmd, 1000);
+
+  Serial.println("--- data ---");
+  sendESP8266Data(response, 1000);
+}
+
+boolean waitOKfromESP8266(int timeout)
+{
+  do{
+    Serial.println("wait OK...");
+    delay(1000);
+    if(ESP8266.find("OK"))
+    {
+      return true;
+    }
+
+  }while((timeout--)>0);
+  return false;
+}
+
+boolean cwJoinAP()
+{
+  String cmd="AT+CWJAP=\"" + SSID + "\",\"" + PASSWORD + "\"";
+  ESP8266.println(cmd);
+  return waitOKfromESP8266(10);
+}
+
+//Send command to ESP8266, assume OK, no error check
+//wait some time and display respond
+void sendESP8266Cmdln(String cmd, int waitTime)
+{
+  ESP8266.println(cmd);
+  delay(waitTime);
+  clearESP8266SerialBuffer();
+}
+
+//Basically same as sendESP8266Cmdln()
+//But call ESP8266.print() instead of call ESP8266.println()
+void sendESP8266Data(String data, int waitTime)
+{
+  ESP8266.print(data);
+  delay(waitTime);
+  clearESP8266SerialBuffer();
+}
+
+//Clear and display Serial Buffer for ESP8266
+void clearESP8266SerialBuffer()
+{
+  Serial.println("= clearESP8266SerialBuffer() =");
+  while (ESP8266.available() > 0) {
+    char a = ESP8266.read();
+    Serial.write(a);
+  }
+  Serial.println("==============================");
 }
