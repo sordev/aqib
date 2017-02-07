@@ -16,22 +16,24 @@ DHT dht(DHTPIN, DHTTYPE);
 //VARIABLES
 byte nano[8] = {B00000,B00000,B00000,B10010,B10010,B10010,B11110,B10000};
 byte pow3[8] = {B11000,B00100,B11000,B00100,B11000,B00000,B00000,B00000};
+
 #include <avr/wdt.h>
-// PPD42NS data Pin 3, 4
+
 #define PM25 0
 #define PM10 1
 int pin[] = {4,3};
 unsigned long starttime;
-// Sample Time 30sec
 unsigned long sampletime_ms = 30000;
 unsigned long triggerOn[2];
 unsigned long triggerOff[2];
 unsigned long lowpulseoccupancy[] = {0,0};
 float ratio[] = {0,0};
 float concentration[] = {0,0};
-float ppmv[] = {0,0};
 boolean value[] = {HIGH,HIGH};
 boolean trigger[] = {false, false};
+
+float humidity = 0;
+float temp = 0;
 // If you don't have DHT 11 or DHT 22 uncomment below
 // int temp=20; //external temperature, if you can replace this with a DHT11 or better
 
@@ -59,33 +61,6 @@ void setup() {
 
 void loop()
 {
-  lcd.clear();
-  // Read mq136 sensor on Analogpin 0
-  so2 = analogRead(0);
-  // Read 6814 sensor on Analogpin 7,6,5
-  co = analogRead(7);
-  nh3 = analogRead(6);
-  no2 = analogRead(5);
-
-  lcd.print( "SO2: " + (String)so2 );
-  lcd.setCursor(9, 0);
-  lcd.print( "CO: " + (String)co );
-  lcd.setCursor(0, 2);
-  lcd.print( "NH3: " + (String)nh3 );
-  lcd.setCursor(9, 2);
-  lcd.print( "NO2: " + (String)no2 );
-  delay(3000);
-
-  lcd.clear(); // Clears the display
-  float humidity = dht.readHumidity();
-  float temp = dht.readTemperature();
-  lcd.print( "Humi: " + (String)humidity + "%" );
-  lcd.setCursor(0, 2);
-  lcd.print( "Temp: " + (String)temp + "C");
-  delay(3000);
-
-  // This part is from
-  // https://www.shadowandy.net/2015/05/arduino-dust-sensor.htm
   value[PM25] = digitalRead(pin[PM25]);
   value[PM10] = digitalRead(pin[PM10]);
 
@@ -108,34 +83,52 @@ void loop()
     trigger[PM10] = false;
   }
   wdt_reset();
-  //Checking if it is time to sample
-  if ((millis()-starttime) > sampletime_ms) {
+  if ((millis()-starttime) > sampletime_ms)//Checking if it is time to sample
+  {
     // main code from https://github.com/empierre/arduino/blob/master/DustSensor_Shinyei_PPD42NS.ino
     // ratio = (lowpulseoccupancy-endtime+starttime)/(sampletime_ms*10.0);  // Integer percentage 0=>100
     // long concentration = 1.1*pow(ratio,3)-3.8*pow(ratio,2)+520*ratio+0.62; // using spec sheet curve
-    ratio[PM25] = lowpulseoccupancy[PM25]/(sampletime_ms*10.0); // Integer percentage 0=>100
-    concentration[PM25] = 1.1*pow(ratio[PM25],3)-3.8*pow(ratio[PM25],2)+520*ratio[PM25]+0.62; // using spec sheet curve
-    ratio[PM10] = lowpulseoccupancy[PM10]/(sampletime_ms*10.0); // Integer percentage 0=>100
-    concentration[PM10] = 1.1*pow(ratio[PM10],3)-3.8*pow(ratio[PM10],2)+520*ratio[PM10]+0.62; // using spec sheet curve
+    ratio[PM25] = lowpulseoccupancy[PM25]/(sampletime_ms*10.0);
+    concentration[PM25] = 1.1*pow(ratio[PM25],3)-3.8*pow(ratio[PM25],2)+520*ratio[PM25]+0.62;
+    ratio[PM10] = lowpulseoccupancy[PM10]/(sampletime_ms*10.0);
+    concentration[PM10] = 1.1*pow(ratio[PM10],3)-3.8*pow(ratio[PM10],2)+520*ratio[PM10]+0.62;
     concentration[PM25] -= concentration[PM10];
 
+    // Begin mass ppmv calculation
+    // float ppmv[] = {0,0};
+    // double pi = 3.14159;
+    // double density = 1.65*pow(10,12);
+    // double K = 3531.5;
+    // // PM10
+    // double r10 = 2.6*pow(10,-6);
+    // double vol10 = (4.0/3.0)*pi*pow(r10,3);
+    // double mass10 = density*vol10;
+    // ppmv[PM10] = (count[PM10])*K*mass10;
+    // // PM2.5
+    // double r25 = 0.44*pow(10,-6);
+    // double vol25 = (4.0/3.0)*pi*pow(r25,3);
+    // double mass25 = density*vol25;
+    // ppmv[PM25] = (count[PM25])*K*mass25;
+    // End of mass ppmv calculation
+    temp = dht.readTemperature();
+    float ppmv[] = {0,0};
     //ppmv=mg/m3 * (0.08205*Tmp)/Molecular_mass
     //0.08205   = Universal gas constant in atm·m3/(kmol·K)
     ppmv[PM10]=(concentration[PM10]*0.0283168/100/1000)*(0.08205*temp)/0.01;
     ppmv[PM25]=(concentration[PM25]*0.0283168/100/1000)*(0.08205*temp)/0.01;
 
     // Begin printing to Serial
+    Serial.print("PM10 ppmv  : ");
+    Serial.print(ppmv[PM10]);
+    Serial.println(" ug/m3");
     Serial.print("PM10       : ");
     Serial.print(concentration[PM10]);
-    Serial.println(" ug/m3");
-    Serial.print("PM10 ppmv : ");
-    Serial.print(ppmv[PM10]);
     Serial.println(" pt/cf");
+    Serial.print("PM2.5 ppmv : ");
+    Serial.print(ppmv[PM25]);
+    Serial.println(" ug/m3");
     Serial.print("PM2.5      : ");
     Serial.print(concentration[PM25]);
-    Serial.println(" ug/m3");
-    Serial.print("PM2.5 ppmv: ");
-    Serial.print(ppmv[PM25]);
     Serial.println(" pt/cf");
     Serial.println("");
 
@@ -160,5 +153,30 @@ void loop()
     lowpulseoccupancy[PM10] = 0;
     starttime = millis();
     wdt_reset();
+    delay(5000);
+    lcd.clear();
+    // Read mq136 sensor on Analogpin 0
+    so2 = analogRead(0);
+    // Read 6814 sensor on Analogpin 7,6,5
+    co = analogRead(7);
+    nh3 = analogRead(6);
+    no2 = analogRead(5);
+
+    lcd.print( "SO2: " + (String)so2 );
+    lcd.setCursor(9, 0);
+    lcd.print( "CO: " + (String)co );
+    lcd.setCursor(0, 2);
+    lcd.print( "NH3: " + (String)nh3 );
+    lcd.setCursor(9, 2);
+    lcd.print( "NO2: " + (String)no2 );
+    delay(5000);
+
+    lcd.clear(); // Clears the display
+    humidity = dht.readHumidity();
+    temp = dht.readTemperature();
+    lcd.print( "Humi: " + (String)humidity + "%" );
+    lcd.setCursor(0, 2);
+    lcd.print( "Temp: " + (String)temp + "C");
+    delay(5000);
   }
 }
