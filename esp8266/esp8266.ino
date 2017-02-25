@@ -29,6 +29,7 @@ int PM10Value = 0;       //define PM10 value of the air detector module
 #include <ESP8266WiFi.h>
 const char ssid[] = "devsor";
 const char pass[] = "97070767";
+int tries = 0;
 
 unsigned long starttime;
 
@@ -118,12 +119,22 @@ void loop(void)
 }
 
 void connectWiFi() {
+  lcd.clear();
+  lcd.println("Connecting WiFi:");
+  lcd.println((String)ssid);
   if (WiFi.status() == WL_CONNECTED) {
+    lcd.clear();
+    lcd.println("Connected WiFi:");
+    lcd.println((String)ssid);
     return;
   }
+  tries++;
   WiFi.begin(ssid, pass);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
+    lcd.clear();
+    lcd.println("Connection failed:");
+    lcd.println("Trying:" + tries);
   }
 }
 
