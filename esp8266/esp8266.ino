@@ -1,3 +1,5 @@
+#include <SPI.h>
+
 // Nokia 5110 LCD Libraries
 // https://github.com/baghayi/Nokia_5110
 #include "Nokia_5110.h"
@@ -33,6 +35,7 @@ const char api_url[] = "api.utaa.mn";
 const char api_key[] = "3aa18dbe7df6844974e199e327c5c30e";
 const char unwiredlabs_key[] = "918092cf2502c3";
 int tries = 0;
+byte mac[6];
 
 // Include DHT LIbrary
 // DHT Library from https://github.com/adafruit/DHT-sensor-library required https://github.com/adafruit/Adafruit_Sensor
@@ -46,8 +49,12 @@ float temp = 0;
 
 void setup(void)
 {
-  Serial.begin('9600');
+  Serial.begin(9600);
   Serial.setTimeout(1500);    //set the Timeout to 1500ms, longer than the data transmission periodic time of the sensor
+  while (!Serial) {
+    ; // wait for serial port to connect. Needed for Leonardo only
+  }
+
   setupSensor();
   ESP.wdtDisable(); // Disable Watchdog
   ESP.wdtEnable(WDTO_8S); // Enabling Watchdog
@@ -81,6 +88,11 @@ void loop(void)
   lcd.println("PM 10: " + (String)PM10Value);
   delay(3000);
 
+  if (WiFi.status() == WL_CONNECTED) {
+    updateApi("pm1=" + (String)PM1Value + "&pm25" + (String)PM25Value + "&pm10" + (String)PM10Value + "&humidity" + (String)humidity + "&temperature" + (String)temp + "");
+    delay(3000);
+  }
+
   ESP.wdtFeed(); // Reset the WatchDog
 }
 
@@ -95,6 +107,7 @@ boolean connectWiFi() {
     WiFi.begin(ssid, pass);
     while (WiFi.status() != WL_CONNECTED || tries  < 4) {
       tries++;
+      lcd.clear();
       lcd.println("Connecting:");
       lcd.println((String)ssid);
       lcd.println("Tries:" + String(tries));
@@ -111,7 +124,9 @@ void setupSensor() {
   lcd.print("Booting Up ...");
   delay(3000);
   connectWiFi();
-  // updateThingSpeak("1=" + String(concentration[PM10], DEC) + "&2=" + String(count[PM10], DEC) + "&3=" + String(concentration[PM25], DEC) + "&4=" + String(count[PM25], DEC));
+  if (WiFi.status() == WL_CONNECTED) {
+    updateApi("mac=asdasdas&lat=47.921067&lon=106.977267&ip=192.168.1.1");
+  }
 }
 
 void getIP() {
@@ -125,15 +140,23 @@ void getLocation() {
 
 void updateApi(String data) {
   WiFiClient client;
-  if (!client.connect(api_url, 80)) {
-    return;
+  if (client.connect(api_url, 80)) {
+    lcd.clear();
+    lcd.println("Sending Data");
+    client.print(F("POST /api/update?api_key="));
+    client.print(api_key);
+    client.print(F("&"));
+    client.print(data);
+    client.print(F(" HTTP/1.1"));
+    client.println("Host: " + String(api_url) + "");
+    client.println("User-Agent: Arduino/1.0");
+    client.println();
+  } else {
+    lcd.clear();
+    lcd.println("Can't Send Data");
+    client.stop();
   }
-  client.print(F("POST /api/update?key="));
-  client.print(api_key);
-  client.print(F("&"));
-  client.print(data);
-  client.print(F(" HTTP/1.1\r\nHost: \r\n\r\n"));
-  client.println();
+  return;
 }
 
 char checkValue(unsigned char *thebuf, char leng)
