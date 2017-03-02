@@ -89,7 +89,7 @@ void loop(void)
   delay(3000);
 
   if (WiFi.status() == WL_CONNECTED) {
-    updateApi("pm1=" + (String)PM1Value + "&pm25" + (String)PM25Value + "&pm10" + (String)PM10Value + "&humidity" + (String)humidity + "&temperature" + (String)temp + "");
+    updateApi("pm1=" + (String)PM1Value + "&pm25=" + (String)PM25Value + "&pm10=" + (String)PM10Value + "&humidity=" + (String)humidity + "&temperature=" + (String)temp + "");
     delay(3000);
   }
 
@@ -125,7 +125,7 @@ void setupSensor() {
   delay(3000);
   connectWiFi();
   if (WiFi.status() == WL_CONNECTED) {
-    updateApi("mac=asdasdas&lat=47.921067&lon=106.977267&ip=192.168.1.1");
+    updateApi("mac=asdasdas&lat=47.921067&lon=106.977267&ip=192.168.1.10");
   }
 }
 
@@ -143,14 +143,16 @@ void updateApi(String data) {
   if (client.connect(api_url, 80)) {
     lcd.clear();
     lcd.println("Sending Data");
-    client.print(F("POST /api/update?api_key="));
-    client.print(api_key);
-    client.print(F("&"));
-    client.print(data);
-    client.print(F(" HTTP/1.1"));
-    client.println("Host: " + String(api_url) + "");
-    client.println("User-Agent: Arduino/1.0");
+    data = "api_key=" + (String)api_key + "&" + data;
+    client.println("POST /api/update HTTP/1.1");
+    client.println("Host: api.utaa.mn");
+    //    client.print(api_url);
+    client.println("Cache-Control: no-cache");
+    client.println("Content-Type: application/x-www-form-urlencoded");
+    client.print("Content-Length: ");
+    client.println(data.length());
     client.println();
+    client.println(data);
   } else {
     lcd.clear();
     lcd.println("Can't Send Data");
