@@ -3,12 +3,11 @@
 // Nokia 5110 LCD Libraries
 // https://github.com/baghayi/Nokia_5110
 #include "Nokia_5110.h"
-
-#define RST 13
-#define CE 12
-#define DC 14
-#define DIN 15
-#define CLK 2
+#define RST 10 //s3 gpio10
+#define CE 5 //d1 gpio5
+#define DC 4 //d2 gpio4
+#define DIN 0 //d3 gpio0
+#define CLK 2 //d3 gpio2
 Nokia_5110 lcd = Nokia_5110(RST, CE, DC, DIN, CLK);
 
 // https://www.dfrobot.com/wiki/index.php/PM2.5_laser_dust_sensor_SKU:SEN0177
@@ -21,12 +20,12 @@ Nokia_5110 lcd = Nokia_5110(RST, CE, DC, DIN, CLK);
 //*Date：March.25.2016
 //******************************
 #include <Arduino.h>
-#define LENG 31   //0x42 + 31 bytes equal to 32 bytes
+#define LENG 31 //0x42 + 31 bytes equal to 32 bytes
 unsigned char buf[LENG];
 
-int PM1Value = 0;        //define PM1.0 value of the air detector module
-int PM25Value = 0;       //define PM2.5 value of the air detector module
-int PM10Value = 0;       //define PM10 value of the air detector module
+int PM1Value = 0; //define PM1.0 value of the air detector module
+int PM25Value = 0; //define PM2.5 value of the air detector module
+int PM10Value = 0; //define PM10 value of the air detector module
 
 #include <ESP8266WiFi.h>
 const char ssid[] = "devsor";
@@ -34,27 +33,41 @@ const char pass[] = "97070767";
 const char api_url[] = "api.utaa.mn";
 const char api_key[] = "3aa18dbe7df6844974e199e327c5c30e";
 const char unwiredlabs_key[] = "918092cf2502c3";
+const int interval = 60000; // 60000 = 1min
+unsigned long startTime;
 int tries = 0;
 byte mac[6];
 
 // Include DHT LIbrary
 // DHT Library from https://github.com/adafruit/DHT-sensor-library required https://github.com/adafruit/Adafruit_Sensor
 #include <DHT.h>
-#define DHTPIN 5
+#define DHTPIN 14 //d5 gpio14
 #define DHTTYPE DHT22
 DHT dht(DHTPIN, DHTTYPE);
 #include <DHT_U.h>
 float humidity = 0;
 float temp = 0;
 
+// Include mcp3008 library ADC
+// https://github.com/nodesign/MCP3008
+#include <MCP3008.h>
+#define CLOCK_PIN 16 //d0 gpio16
+#define MISO_PIN 12 //d6 (mcp3008-Dout) gpio12
+#define MOSI_PIN 13 //d7 (mcp3008-Din) gpio13
+#define CS_PIN 15 //d8 (mcp3008-CS) gpio15
+MCP3008 adc(CLOCK_PIN, MOSI_PIN, MISO_PIN, CS_PIN); //Setup mcp3008
+
+// Analog reads
+int co;
+int nh3;
+int no2;
+int so2;
+int o3; 
+
 void setup(void)
 {
   Serial.begin(9600);
   Serial.setTimeout(1500);    //set the Timeout to 1500ms, longer than the data transmission periodic time of the sensor
-  while (!Serial) {
-    ; // wait for serial port to connect. Needed for Leonardo only
-  }
-
   setupSensor();
   ESP.wdtDisable(); // Disable Watchdog
   ESP.wdtEnable(WDTO_8S); // Enabling Watchdog
@@ -62,12 +75,23 @@ void setup(void)
 
 void loop(void)
 {
+  co = adc.readADC(0);
+  nh3 = adc.readADC(1);
+  no2 = adc.readADC(2);
+  so2 = adc.readADC(3);
+  lcd.clear();
+  lcd.println("CO: " + (String)co);
+  lcd.println("NH3: " + (String)nh3);
+  lcd.println("NO2: " + (String)no2);
+  lcd.println("SO2: " + (String)so2);
+  delay(2000);
+
   humidity = dht.readHumidity();
   temp = dht.readTemperature();
   lcd.clear();
   lcd.println("Humi: " + (String)humidity + "%");
   lcd.println("Temp: " + (String)temp + "C");
-  delay(3000);
+  delay(2000);
 
   if (Serial.find(0x42)) {  //start to read when detect 0x42
     Serial.readBytes(buf, LENG);
@@ -86,11 +110,26 @@ void loop(void)
   lcd.println("PM 1.0: " + (String)PM1Value);
   lcd.println("PM 2.5: " + (String)PM25Value);
   lcd.println("PM 10: " + (String)PM10Value);
-  delay(3000);
+  delay(2000);
 
   if (WiFi.status() == WL_CONNECTED) {
-    updateApi("pm1=" + (String)PM1Value + "&pm25=" + (String)PM25Value + "&pm10=" + (String)PM10Value + "&humidity=" + (String)humidity + "&temperature=" + (String)temp + "");
-    delay(3000);
+    //only send data after interval passed
+    if (millis()-startTime > interval) {
+      updateApi(
+      "pm1=" + (String)PM1Value + 
+      "&pm25=" + (String)PM25Value + 
+      "&pm10=" + (String)PM10Value +       
+      "&co=" + (String)co + 
+      "&nh3=" + (String)nh3 + 
+      "&no2=" + (String)no2 + 
+      "&so2=" + (String)so2 + 
+      "&humidity=" + (String)humidity + 
+      "&temperature=" + (String)temp
+      );
+      // Reset Timer
+      startTime = millis();
+      delay(3000);
+    }
   }
 
   ESP.wdtFeed(); // Reset the WatchDog
@@ -101,6 +140,7 @@ boolean connectWiFi() {
     lcd.clear();
     lcd.println("Connected WiFi:");
     lcd.println((String)ssid);
+    startTime = millis(); // Start counting only when WiFi connected;
     delay(3000);
     return true;
   } else {
