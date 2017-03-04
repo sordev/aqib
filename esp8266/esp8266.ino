@@ -79,11 +79,13 @@ void loop(void)
   nh3 = adc.readADC(1);
   no2 = adc.readADC(2);
   so2 = adc.readADC(3);
+  o3 = adc.readADC(4);
   lcd.clear();
   lcd.println("CO: " + (String)co);
   lcd.println("NH3: " + (String)nh3);
   lcd.println("NO2: " + (String)no2);
   lcd.println("SO2: " + (String)so2);
+  lcd.println("O3: " + (String)o3);
   delay(2000);
 
   humidity = dht.readHumidity();
@@ -123,6 +125,7 @@ void loop(void)
       "&nh3=" + (String)nh3 + 
       "&no2=" + (String)no2 + 
       "&so2=" + (String)so2 + 
+      "&o3=" + (String)o3 + 
       "&humidity=" + (String)humidity + 
       "&temperature=" + (String)temp
       );
